@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>gWebTail - Log Viewer</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.9/htmx.min.js"></script>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css"
+        />
+        <style>
+            body {
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 0;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+            .container-fluid {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                padding: 0;
+            }
+            .top-bar {
+                background-color: #f8f9fa;
+                border-bottom: 1px solid #dee2e6;
+                padding: 10px 15px;
+            }
+            .log-container {
+                display: flex;
+                flex-direction: column;
+                height: calc(100vh - 130px);
+                padding: 0 15px;
+            }
+            .log-controls {
+                padding: 10px 0;
+                border-bottom: 1px solid #dee2e6;
+                margin-bottom: 10px;
+            }
+            .log-content {
+                flex: 1;
+                background-color: #f8f9fa;
+                padding: 10px;
+                overflow-y: auto;
+                font-family: monospace;
+                font-size: 0.85rem; /* Smaller font size */
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+            }
+            .highlighted {
+                background-color: yellow;
+                color: black;
+            }
+            .status-bar {
+                background-color: #f8f9fa;
+                border-top: 1px solid #dee2e6;
+                padding: 8px 15px;
+                font-size: 0.9rem;
+            }
+            .refresh-icon {
+                font-size: 1.2rem;
+            }
+            .control-group {
+                margin-right: 20px;
+            }
+            .control-label {
+                font-weight: 500;
+                margin-right: 8px;
+            }
+            .btn-group-sm .btn {
+                padding: 0.25rem 0.5rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container-fluid">
+            <!-- Top Bar with all controls -->
+            <div class="top-bar">
+                <div class="row align-items-center">
+                    <!-- Title, File Selector and Search -->
+                    <div class="col-md-7 d-flex align-items-center">
+                        <h3 class="me-3 mb-0">gWebTail</h3>
+                        <div class="input-group me-3" style="max-width: 300px">
+                            <label class="input-group-text" for="file-select"
+                                >File:</label
+                            >
+                            <select
+                                class="form-select"
+                                id="file-select"
+                                onchange="selectFileFromDropdown()"
+                            >
+                                <option value="">-- Select log file --</option>
+                            </select>
+                            <button
+                                class="btn btn-outline-secondary"
+                                type="button"
+                                onclick="refreshFiles()"
+                            >
+                                <span class="refresh-icon">↻</span>
+                            </button>
+                        </div>
+                        <div class="input-group" style="max-width: 300px">
+                            <label class="input-group-text" for="search-input"
+                                >Highlight:</label
+                            >
+                            <input
+                                type="text"
+                                id="search-input"
+                                class="form-control"
+                                placeholder="Text to highlight"
+                            />
+                            <button
+                                class="btn btn-outline-secondary"
+                                type="button"
+                                id="search-button"
+                                onclick="updateSearch()"
+                            >
+                                Apply
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Settings -->
+                    <div
+                        class="col-md-5 d-flex align-items-center justify-content-end"
+                    >
+                        <div class="control-group d-flex align-items-center">
+                            <label class="control-label" for="max-lines"
+                                >Lines:</label
+                            >
+                            <input
+                                type="number"
+                                class="form-control form-control-sm"
+                                id="max-lines"
+                                value="100"
+                                min="10"
+                                max="2000"
+                                style="width: 80px"
+                            />
+                        </div>
+
+                        <div class="control-group d-flex align-items-center">
+                            <div class="form-check form-switch mb-0">
+                                <input
+                                    class="form-check-input"
+                                    type="checkbox"
+                                    id="auto-scroll"
+                                    checked
+                                />
+                                <label
+                                    class="form-check-label"
+                                    for="auto-scroll"
+                                    >Auto-scroll</label
+                                >
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <button
+                                class="btn btn-sm btn-primary"
+                                onclick="applySettings()"
+                            >
+                                Apply
+                            </button>
+                        </div>
+
+                        <div class="control-group">
+                            <div class="btn-group btn-group-sm">
+                                <button
+                                    class="btn btn-success"
+                                    id="start-button"
+                                    onclick="startTailing()"
+                                    disabled
+                                >
+                                    Start
+                                </button>
+                                <button
+                                    class="btn btn-danger"
+                                    id="stop-button"
+                                    onclick="stopTailing()"
+                                    disabled
+                                >
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <span class="badge bg-secondary" id="line-count"
+                                >0 lines</span
+                            >
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Log Area -->
+            <div class="log-container">
+                <div class="log-controls">
+                    <div class="row">
+                        <div class="col-12 text-end">
+                            <div id="file-stats" class="text-muted">
+                                No file selected
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-content" id="log-content">
+                    <div class="text-center p-5">
+                        <h4 class="text-muted">Select a log file to view</h4>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-bar" id="status-bar">Ready</div>
+        </div>
+
+        <script>
+            // Current state
+            let currentFile = null;
+            let searchText = "";
+            let ws = null;
+            let autoReconnect = true;
+            let isTailing = false;
+            let tailCancel = false;
+            let fullLogContent = []; // Store the complete log content
+
+            // Connect to WebSocket
+            function connectWebSocket() {
+                const protocol =
+                    window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = function () {
+                    setStatus("Connected");
+                    refreshFiles();
+                };
+
+                ws.onclose = function () {
+                    setStatus("Disconnected");
+                    if (autoReconnect) {
+                        setTimeout(connectWebSocket, 3000);
+                    }
+                };
+
+                ws.onerror = function (err) {
+                    console.error("WebSocket error:", err);
+                    setStatus("Connection error");
+                };
+
+                ws.onmessage = function (event) {
+                    const data = JSON.parse(event.data);
+
+                    switch (data.type) {
+                        case "files":
+                            displayFiles(data.lines);
+                            break;
+                        case "tail":
+                            displayTail(data.file, data.lines);
+                            break;
+                        case "update":
+                            if (!tailCancel) {
+                                // Only update if not cancelled
+                                updateTail(data.lines);
+                            }
+                            break;
+                        case "error":
+                            setStatus("Error: " + data.error);
+                            break;
+                        case "stopped":
+                            setStatus("Stopped tailing");
+                            break;
+                    }
+                };
+            }
+
+            // Display files in the file list
+            function displayFiles(files) {
+                // Update the select dropdown
+                const fileSelect = document.getElementById("file-select");
+
+                // Clear current options except the first one
+                while (fileSelect.options.length > 1) {
+                    fileSelect.options.remove(1);
+                }
+
+                if (!files || files.length === 0) {
+                    const option = document.createElement("option");
+                    option.text = "No log files found";
+                    option.disabled = true;
+                    fileSelect.add(option);
+                    return;
+                }
+
+                // Add file options
+                files.forEach((file) => {
+                    const option = document.createElement("option");
+                    option.value = file;
+                    option.text = file;
+                    fileSelect.add(option);
+
+                    // Select current file if it exists
+                    if (file === currentFile) {
+                        fileSelect.value = file;
+                    }
+                });
+
+                // Check if we need to select a file from the URL hash
+                if (window.fileToSelectFromHash) {
+                    // Find if this file exists in our list
+                    const fileExists = files.some(
+                        (file) => file === window.fileToSelectFromHash,
+                    );
+                    if (fileExists) {
+                        selectFile(window.fileToSelectFromHash);
+                    }
+                    // Clear the variable so we don't try again
+                    delete window.fileToSelectFromHash;
+                }
+            }
+
+            // Select file from dropdown
+            function selectFileFromDropdown() {
+                const fileSelect = document.getElementById("file-select");
+                const selectedFile = fileSelect.value;
+
+                if (selectedFile) {
+                    selectFile(selectedFile);
+                }
+            }
+
+            // Select a file to tail
+            function selectFile(file) {
+                // If already tailing, stop it first
+                if (isTailing) {
+                    stopTailing();
+                }
+
+                currentFile = file;
+                // Reset the full log content
+                fullLogContent = [];
+
+                // Update the URL hash to include the selected file
+                window.location.hash = encodeURIComponent(file);
+
+                // Update dropdown selection
+                const fileSelect = document.getElementById("file-select");
+                if (fileSelect.value !== file) {
+                    fileSelect.value = file;
+                }
+
+                // Update stats
+                document.getElementById("file-stats").innerHTML =
+                    `Selected: <strong>${file}</strong>`;
+
+                // Enable buttons
+                updateTailButtons();
+
+                // Clear content
+                document.getElementById("log-content").innerHTML = `
+                <div class="alert alert-info">
+                    <strong>File selected:</strong> ${file}<br>
+                    Click "Start" to begin tailing the file.
+                </div>
+            `;
+                document.getElementById("line-count").textContent = "0 lines";
+            }
+
+            // Start tailing a file
+            function tailFile(file) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    setStatus("Not connected");
+                    return;
+                }
+
+                const maxLines = document.getElementById("max-lines").value;
+
+                ws.send(
+                    JSON.stringify({
+                        command: "tail",
+                        file: file,
+                        lines: parseInt(maxLines), // This controls how many lines to display on screen
+                        searchStr: "", // No server-side search
+                    }),
+                );
+
+                setStatus(`Tailing ${file}: showing last ${maxLines} lines`);
+                isTailing = true;
+                tailCancel = false;
+                updateTailButtons();
+            }
+
+            // Start tailing the currently selected file
+            function startTailing() {
+                if (currentFile) {
+                    tailFile(currentFile);
+                }
+            }
+
+            // Stop tailing the current file
+            function stopTailing() {
+                if (isTailing) {
+                    ws.send(
+                        JSON.stringify({
+                            command: "stop",
+                        }),
+                    );
+
+                    isTailing = false;
+                    tailCancel = true;
+                    setStatus(`Stopped tailing ${currentFile}`);
+                    updateTailButtons();
+                }
+            }
+
+            // Update the state of the start/stop buttons
+            function updateTailButtons() {
+                const startButton = document.getElementById("start-button");
+                const stopButton = document.getElementById("stop-button");
+
+                if (currentFile) {
+                    startButton.disabled = isTailing;
+                    stopButton.disabled = !isTailing;
+                } else {
+                    startButton.disabled = true;
+                    stopButton.disabled = true;
+                }
+            }
+
+            // Display initial tail content
+            function displayTail(file, lines) {
+                if (!lines || lines.length === 0) {
+                    const logContent = document.getElementById("log-content");
+                    logContent.innerHTML =
+                        '<div class="alert alert-info">File is empty</div>';
+                    document.getElementById("line-count").textContent =
+                        "0 lines";
+                    return;
+                }
+
+                // Store the full log content
+                fullLogContent = lines;
+
+                // Get search text from the input field
+                searchText = document.getElementById("search-input").value;
+
+                // Display the content with client-side search
+                renderLogContent();
+            }
+
+            // Update tail with new lines
+            function updateTail(lines) {
+                if (!lines || lines.length === 0) {
+                    return;
+                }
+
+                // Add new lines to our stored log content
+                fullLogContent = fullLogContent.concat(lines);
+
+                // Apply max lines limit
+                const maxLines = parseInt(
+                    document.getElementById("max-lines").value,
+                );
+                if (fullLogContent.length > maxLines) {
+                    fullLogContent = fullLogContent.slice(
+                        fullLogContent.length - maxLines,
+                    );
+                }
+
+                // Re-render the log content with the updated data
+                renderLogContent();
+            }
+
+            // Render the log content with current search settings
+            function renderLogContent() {
+                const logContent = document.getElementById("log-content");
+                const maxLines = parseInt(
+                    document.getElementById("max-lines").value,
+                );
+
+                // Get search text from the input field
+                searchText = document.getElementById("search-input").value;
+
+                // Limit lines to maxLines if needed
+                let linesToDisplay = fullLogContent;
+                if (linesToDisplay.length > maxLines) {
+                    linesToDisplay = linesToDisplay.slice(
+                        linesToDisplay.length - maxLines,
+                    );
+                }
+
+                let html = "";
+                linesToDisplay.forEach((line) => {
+                    if (searchText && line.includes(searchText)) {
+                        html +=
+                            '<div class="log-line">' +
+                            highlightText(line, searchText) +
+                            "</div>";
+                    } else {
+                        html +=
+                            '<div class="log-line">' +
+                            escapeHtml(line) +
+                            "</div>";
+                    }
+                });
+
+                logContent.innerHTML = html;
+                document.getElementById("line-count").textContent =
+                    linesToDisplay.length + " lines";
+
+                if (document.getElementById("auto-scroll").checked) {
+                    logContent.scrollTop = logContent.scrollHeight;
+                }
+            }
+
+            // Highlight search text in a line
+            function highlightText(line, search) {
+                if (!search) return escapeHtml(line);
+
+                const escapedLine = escapeHtml(line);
+                const escapedSearch = escapeHtml(search);
+
+                return escapedLine.replace(
+                    new RegExp(escapedSearch, "gi"),
+                    (match) => `<span class="highlighted">${match}</span>`,
+                );
+            }
+
+            // Escape HTML in text
+            function escapeHtml(text) {
+                const div = document.createElement("div");
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // Update highlight text - frontend only
+            function updateSearch() {
+                searchText = document.getElementById("search-input").value;
+
+                if (fullLogContent.length > 0) {
+                    // Re-render with the new search term
+                    renderLogContent();
+                    setStatus(`Highlighting text: "${searchText}"`);
+                } else if (!currentFile) {
+                    alert("Please select a log file first.");
+                }
+            }
+
+            // Apply settings and reload the current file
+            function applySettings() {
+                if (currentFile) {
+                    if (isTailing) {
+                        // Restart tailing with new settings
+                        tailFile(currentFile);
+                    } else {
+                        // Just update settings without starting
+                        setStatus(
+                            `Settings updated. Click "Start" to begin tailing with new settings.`,
+                        );
+                    }
+                } else {
+                    alert("Please select a log file first.");
+                }
+            }
+
+            // Refresh file list
+            function refreshFiles() {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            command: "list",
+                        }),
+                    );
+
+                    // Clear dropdown and show loading
+                    const fileSelect = document.getElementById("file-select");
+                    fileSelect.innerHTML =
+                        '<option value="">Loading files...</option>';
+
+                    setStatus("Refreshing file list...");
+                }
+            }
+
+            // Set status message
+            function setStatus(message) {
+                document.getElementById("status-bar").textContent = message;
+            }
+
+            // Initialize
+            window.addEventListener("load", function () {
+                connectWebSocket();
+
+                // Add search on Enter key
+                document
+                    .getElementById("search-input")
+                    .addEventListener("keyup", function (event) {
+                        if (event.key === "Enter") {
+                            updateSearch();
+                        }
+                    });
+
+                // Check if there's a file specified in the URL hash
+                if (window.location.hash) {
+                    const fileFromHash = decodeURIComponent(
+                        window.location.hash.substring(1),
+                    );
+                    // We'll select the file once the file list is loaded
+                    // Store it so we can select it after files are loaded
+                    window.fileToSelectFromHash = fileFromHash;
+                }
+            });
+
+            // Handle page unload
+            window.addEventListener("beforeunload", function () {
+                autoReconnect = false;
+                if (ws) {
+                    ws.close();
+                }
+            });
+        </script>
+    </body>
+</html>

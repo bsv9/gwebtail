@@ -1,0 +1,13 @@
+services:
+  gwebtail:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gwebtail
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/logs
+    environment:
+      - LOG_DIR=/logs
+    restart: unless-stopped
