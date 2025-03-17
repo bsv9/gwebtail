@@ -2,7 +2,7 @@
 
 A simple, lightweight web-based log file viewer with real-time log tailing via WebSockets.
 
-![WebTail Screenshot](https://via.placeholder.com/800x450)
+![WebTail Screenshot](gwebtail.png)
 
 ## Features
 
