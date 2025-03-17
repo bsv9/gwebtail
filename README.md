@@ -62,11 +62,14 @@ LOG_DIR=/path/to/logs ./gwebtail
 
 WebTail can be configured through environment variables or command-line flags:
 
-| Environment Variable | Flag       | Description                           | Default  |
-|----------------------|------------|---------------------------------------|----------|
-| `LOG_DIR`            | `-logdir`  | Directory containing log files        | `/logs`  |
-| (none)               | `-port`    | HTTP server port                      | `8080`   |
-| (none)               | `-maxlines`| Maximum number of lines to display    | `1000`   |
+| Environment Variable | Flag            | Description                                | Default       |
+|----------------------|-----------------|--------------------------------------------|--------------:|
+| `LOG_DIR`            | `-logdir`       | Directory containing log files             | `/logs`       |
+| (none)               | `-port`         | HTTP server port                           | `8080`        |
+| (none)               | `-maxlines`     | Maximum number of lines to display         | `1000`        |
+| (none)               | `-maxlinesize`  | Maximum size of a single line in bytes     | `8192`        |
+| (none)               | `-chunksize`    | Chunk size for reading large files (bytes) | `4194304`     |
+| (none)               | `-refreshrate`  | File check interval in milliseconds        | `500`         |
 
 ## Usage
 
