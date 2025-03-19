@@ -1,3 +1,10 @@
+// DISCLAIMER: This code was generated mostly by Claude, an AI assistant created by Anthropic.
+// While efforts have been made to ensure the code is accurate and functional,
+// it may contain errors or not perform as intended in all environments.
+// This code is provided "as is" without warranty of any kind.
+// Users should review, test, and validate the code before using it in production environments.
+// The user assumes all responsibility for the implementation and use of this code.
+
 package main
 
 import (
@@ -116,7 +123,9 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(indexHTML)
+	if _, err := w.Write(indexHTML); err != nil {
+		log.Printf("Error writing response: %v", err)
+	}
 }
 
 // listFiles handles listing files in the log directory
@@ -156,8 +165,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error upgrading to WebSocket:", err)
 		return
 	}
-	defer conn.Close()
-
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing WebSocket connection: %v", err)
+		}
+	}()
 	// Register connection
 	connectionsMutex.Lock()
 	activeConnections[conn] = true
@@ -290,14 +302,17 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	if lines > config.MaxLines {
 		lines = config.MaxLines // Cap at maximum
 	}
-
 	filePath := filepath.Join(config.LogDir, fileName)
 	file, err := os.Open(filePath)
 	if err != nil {
 		sendError(conn, "Failed to open file: "+err.Error())
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("Error closing file: %v", err)
+		}
+	}()
 
 	// Get initial file size
 	fileInfo, err := file.Stat()
@@ -578,5 +593,7 @@ func sendError(conn *websocket.Conn, message string) {
 		Type:  "error",
 		Error: message,
 	}
-	conn.WriteJSON(response)
+	if err := conn.WriteJSON(response); err != nil {
+		log.Printf("Error sending error message: %v", err)
+	}
 }
