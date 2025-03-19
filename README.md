@@ -109,4 +109,4 @@ MIT
 
 ## Thanks
 
-Anthropic Claude Code
+Anthropic Claude
