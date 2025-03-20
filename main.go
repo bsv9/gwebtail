@@ -75,6 +75,9 @@ var (
 )
 
 func main() {
+	// Configure logger with timestamp
+	log.SetFlags(log.LstdFlags)
+
 	// Parse command line flags
 	flag.StringVar(&config.LogDir, "logdir", "", "Directory containing log files")
 	flag.IntVar(&config.Port, "port", 8080, "HTTP server port")
@@ -99,17 +102,31 @@ func main() {
 		}
 	}
 
-	// HTTP handlers
-	http.HandleFunc("/", serveHome)
-	http.HandleFunc("/api/files", listFiles)
-	http.HandleFunc("/ws", handleWebSocket)
+	// Set up HTTP handlers with logging middleware
+	loggedMux := http.NewServeMux()
+	loggedMux.HandleFunc("/", serveHome)
+	loggedMux.HandleFunc("/api/files", listFiles)
+	loggedMux.HandleFunc("/ws", handleWebSocket)
+
+	// Create middleware to log HTTP requests
+	loggedHandler := logRequestMiddleware(loggedMux)
 
 	// Start HTTP server
 	addr := fmt.Sprintf(":%d", config.Port)
 	log.Printf("Starting WebTail server on %s with log directory: %s", addr, config.LogDir)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(addr, loggedHandler); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
+}
+
+// logRequestMiddleware logs all HTTP requests
+func logRequestMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		log.Printf("HTTP %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+		log.Printf("HTTP %s %s completed in %v", r.Method, r.URL.Path, time.Since(start))
+	})
 }
 
 // serveHome handles the home page
@@ -170,14 +187,22 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error closing WebSocket connection: %v", err)
 		}
 	}()
+
 	// Register connection
 	connectionsMutex.Lock()
+	connID := conn.RemoteAddr().String()
 	activeConnections[conn] = true
+	activeCount := len(activeConnections)
 	connectionsMutex.Unlock()
+
+	log.Printf("WebSocket connected from %s (active connections: %d)", connID, activeCount)
+
 	defer func() {
 		connectionsMutex.Lock()
 		delete(activeConnections, conn)
+		remainingCount := len(activeConnections)
 		connectionsMutex.Unlock()
+		log.Printf("WebSocket disconnected from %s (active connections: %d)", connID, remainingCount)
 	}()
 
 	// Send initial file list
@@ -202,6 +227,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		// Log the received command
+		cmdDetails := cmd.Command
+		if cmd.File != "" {
+			cmdDetails += fmt.Sprintf(" (file: %s)", cmd.File)
+		}
+		if cmd.SearchStr != "" {
+			cmdDetails += fmt.Sprintf(" (search: %s)", cmd.SearchStr)
+		}
+		if cmd.Lines > 0 {
+			cmdDetails += fmt.Sprintf(" (lines: %d)", cmd.Lines)
+		}
+		log.Printf("WebSocket command from %s: %s", connID, cmdDetails)
+
 		switch cmd.Command {
 		case "list":
 			files, err := getFileList()
@@ -216,6 +254,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err := conn.WriteJSON(response); err != nil {
 				log.Println("Error sending file list:", err)
 			}
+			log.Printf("WebSocket sent file list to %s (%d files)", connID, len(files))
 
 		case "tail":
 			// Ensure lines is within limits
@@ -230,14 +269,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if tailCancel != nil {
 				tailCancel <- true
 				wg.Wait()
+				log.Printf("WebSocket previous tail canceled for %s", connID)
 			}
 
 			// Start new tail
 			tailCancel = make(chan bool)
 			wg.Add(1)
+			log.Printf("WebSocket starting tail for %s (file: %s, lines: %d)", connID, cmd.File, cmd.Lines)
 			go func(file string, lines int, searchStr string, cancel chan bool) {
 				defer wg.Done()
-				tailFile(conn, file, lines, searchStr, cancel)
+				tailFile(conn, file, lines, searchStr, cancel, connID)
 			}(cmd.File, cmd.Lines, cmd.SearchStr, tailCancel)
 
 		case "stop":
@@ -246,6 +287,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				tailCancel <- true
 				wg.Wait()
 				tailCancel = nil
+				log.Printf("WebSocket tail stopped for %s", connID)
 
 				// Send acknowledgment
 				response := TailResponse{
@@ -267,6 +309,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				if err := conn.WriteJSON(response); err != nil {
 					log.Println("Error sending search update:", err)
 				}
+				log.Printf("WebSocket search updated for %s (search: %s)", connID, cmd.SearchStr)
 			}
 		}
 	}
@@ -295,7 +338,7 @@ func getFileList() ([]string, error) {
 }
 
 // tailFile tails a file and sends updates over WebSocket
-func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string, cancel chan bool) {
+func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string, cancel chan bool, connID string) {
 	if lines <= 0 {
 		lines = 100 // Default number of lines
 	}
@@ -306,6 +349,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	file, err := os.Open(filePath)
 	if err != nil {
 		sendError(conn, "Failed to open file: "+err.Error())
+		log.Printf("WebSocket error for %s: Failed to open file %s: %v", connID, fileName, err)
 		return
 	}
 	defer func() {
@@ -318,6 +362,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	fileInfo, err := file.Stat()
 	if err != nil {
 		sendError(conn, "Failed to stat file: "+err.Error())
+		log.Printf("WebSocket error for %s: Failed to stat file %s: %v", connID, fileName, err)
 		return
 	}
 	fileSize := fileInfo.Size()
@@ -326,6 +371,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	initialLines, err := readLastLinesOptimized(file, lines, fileSize)
 	if err != nil {
 		sendError(conn, "Failed to read file: "+err.Error())
+		log.Printf("WebSocket error for %s: Failed to read file %s: %v", connID, fileName, err)
 		return
 	}
 
@@ -339,6 +385,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 		log.Println("Error sending initial lines:", err)
 		return
 	}
+	log.Printf("WebSocket sent initial %d lines of %s to %s", len(initialLines), fileName, connID)
 
 	// Set current position to end of file for watching new lines
 	currentPos := fileSize
@@ -357,6 +404,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 			fileInfo, err := file.Stat()
 			if err != nil {
 				sendError(conn, "Failed to stat file: "+err.Error())
+				log.Printf("WebSocket error for %s: Failed to stat file during tail %s: %v", connID, fileName, err)
 				return
 			}
 			newSize := fileInfo.Size()
@@ -366,6 +414,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 				_, err := file.Seek(currentPos, io.SeekStart)
 				if err != nil {
 					sendError(conn, "Failed to seek in file: "+err.Error())
+					log.Printf("WebSocket error for %s: Failed to seek in file %s: %v", connID, fileName, err)
 					return
 				}
 
@@ -419,8 +468,10 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 					}
 					if err := conn.WriteJSON(response); err != nil {
 						log.Println("Error sending updates:", err)
+						log.Printf("WebSocket error for %s: Failed to send updates for %s: %v", connID, fileName, err)
 						return
 					}
+					log.Printf("WebSocket sent %d new lines of %s to %s", len(newLines), fileName, connID)
 				}
 			} else if newSize < currentPos {
 				// File has been truncated, reset and read from beginning
@@ -428,6 +479,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 				_, err := file.Seek(0, io.SeekStart)
 				if err != nil {
 					sendError(conn, "Failed to seek to beginning of file: "+err.Error())
+					log.Printf("WebSocket error for %s: Failed to seek to beginning of %s after truncation: %v", connID, fileName, err)
 					return
 				}
 
@@ -437,6 +489,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 				initialLines, err := readLastLinesOptimized(file, lines, newSize)
 				if err != nil {
 					sendError(conn, "Failed to read file after truncation: "+err.Error())
+					log.Printf("WebSocket error for %s: Failed to read %s after truncation: %v", connID, fileName, err)
 					return
 				}
 
@@ -448,14 +501,17 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 				}
 				if err := conn.WriteJSON(response); err != nil {
 					log.Println("Error sending reset after truncation:", err)
+					log.Printf("WebSocket error for %s: Failed to send reset after truncation of %s: %v", connID, fileName, err)
 					return
 				}
+				log.Printf("WebSocket file %s was truncated, reset and sent %d lines to %s", fileName, len(initialLines), connID)
 
 				currentPos = newSize
 			}
 
 		case <-cancel:
 			// Cancel the tail
+			log.Printf("WebSocket tail of %s canceled for %s", fileName, connID)
 			return
 		}
 	}
