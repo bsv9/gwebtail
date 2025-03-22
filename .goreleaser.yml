@@ -11,7 +11,6 @@ builds:
       - windows
     goarch:
       - amd64
-      - arm
       - arm64
     ignore:
       - goos: freebsd
@@ -42,3 +41,36 @@ archives:
       - LICENSE
       - README.md
     # rlcp: true
+
+dockers:
+  - use: buildx
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "docker.io/bsv9/gwebtail:{{ .Version }}-amd64"
+      - "docker.io/bsv9/gwebtail:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - use: buildx
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "docker.io/bsv9/gwebtail:{{ .Version }}-arm64"
+      - "docker.io/bsv9/gwebtail:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+docker_manifests:
+  - name_template: "docker.io/bsv9/gwebtail:{{ .Tag }}"
+    image_templates:
+      - "docker.io/bsv9/gwebtail:{{ .Tag }}-amd64"
+      - "docker.io/bsv9/gwebtail:{{ .Tag }}-arm64"
