@@ -10,7 +10,6 @@ COPY go.mod go.sum* ./
 RUN if [ -f go.sum ]; then go mod download; else echo "skipping go mod download"; fi
 
 COPY *.go ./
-COPY index.html ./
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o gwebtail
 
