@@ -72,6 +72,10 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
 
 docker_manifests:
+  - name_template: "docker.io/bsv9/gwebtail:latest"
+    image_templates:
+      - "docker.io/bsv9/gwebtail:{{ .Tag }}-amd64"
+      - "docker.io/bsv9/gwebtail:{{ .Tag }}-arm64"
   - name_template: "docker.io/bsv9/gwebtail:{{ .Tag }}"
     image_templates:
       - "docker.io/bsv9/gwebtail:{{ .Tag }}-amd64"
