@@ -34,7 +34,6 @@ jobs:
       #   with:
       #     version: v1.64
 
-      TBD
       - name: install goveralls
         run: go install github.com/mattn/goveralls@latest
 
