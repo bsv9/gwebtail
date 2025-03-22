@@ -1,4 +1,5 @@
-# gWebTail
+# gWebTail [![build](https://github.com/bsv9/gwebtail/actions/workflows/ci.yml/badge.svg)](https://github.com/bsv9/gwebtail/actions/workflows/ci.yml)&nbsp;[![Coverage Status](https://coveralls.io/repos/github/bsv9/gwebtail/badge.svg?branch=main)](https://coveralls.io/github/bsv9/gwebtail?branch=main)
+
 
 A simple, lightweight web-based log file viewer with real-time log tailing via WebSockets.
 
