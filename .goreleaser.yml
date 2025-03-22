@@ -46,6 +46,7 @@ dockers:
   - use: buildx
     goos: linux
     goarch: amd64
+    dockerfile: Dockerfile.goreleaser
     image_templates:
       - "docker.io/bsv9/gwebtail:{{ .Version }}-amd64"
       - "docker.io/bsv9/gwebtail:latest-amd64"
@@ -59,6 +60,7 @@ dockers:
   - use: buildx
     goos: linux
     goarch: arm64
+    dockerfile: Dockerfile.goreleaser
     image_templates:
       - "docker.io/bsv9/gwebtail:{{ .Version }}-arm64"
       - "docker.io/bsv9/gwebtail:latest-arm64"

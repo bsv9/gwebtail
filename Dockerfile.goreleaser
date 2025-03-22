@@ -1,0 +1,16 @@
+### RELEASE IMAGE ###
+FROM docker.io/alpine:3.21
+
+RUN apk --no-cache add ca-certificates tzdata
+RUN addgroup -S application --gid 10001 && adduser -S application -G application --uid 10001
+RUN mkdir -p /logs && chown -R application:application /logs
+
+WORKDIR /app
+
+COPY gwebtail /app/gwebtail .
+RUN chown -R application:application /app
+
+USER application
+ENV LOG_DIR=/logs
+EXPOSE 8080
+ENTRYPOINT ["/app/gwebtail"]
