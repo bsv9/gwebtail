@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -517,130 +518,51 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	}
 }
 
-// readLastLinesOptimized reads the last n lines from a file without loading the entire file
-// This is optimized for large files by reading chunks from the end
+// Updated the tailing algorithm to read the last 32k bytes, find the last N lines, and push them to the socket
 func readLastLinesOptimized(file *os.File, n int, fileSize int64) ([]string, error) {
 	if fileSize == 0 {
 		return []string{}, nil
 	}
 
-	// For small files (< 1MB), just read the whole file normally
-	if fileSize < 1024*1024 {
-		_, err := file.Seek(0, io.SeekStart)
-		if err != nil {
-			return nil, err
-		}
+	const bufferSize = 32 * 1024 // 32k buffer size
+	buf := make([]byte, bufferSize)
 
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, config.MaxLineSize), config.MaxLineSize)
-
-		var lines []string
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-		}
-
-		if err := scanner.Err(); err != nil {
-			return nil, err
-		}
-
-		// Return last n lines or all lines if fewer
-		if len(lines) <= n {
-			return lines, nil
-		}
-		return lines[len(lines)-n:], nil
+	// Seek to the last 32k bytes or the start of the file if smaller
+	offset := fileSize - bufferSize
+	if offset < 0 {
+		offset = 0
 	}
 
-	// For large files, read chunks from the end to find the last n lines
-	var lines []string
-	var readBytes int64
-	chunkSize := config.ChunkSize
-
-	// Start with a reasonable estimate of how many bytes we need to read
-	// to get n lines (assume average line length of 100 bytes)
-	estimatedBytes := int64(n * 100)
-	if estimatedBytes > fileSize {
-		estimatedBytes = fileSize
-	}
-
-	// Read in chunks from the end of the file
-	for len(lines) < n && readBytes < fileSize {
-		// Determine chunk size for this iteration
-		if readBytes+chunkSize > fileSize {
-			chunkSize = fileSize - readBytes
-		}
-
-		// Create buffer for this chunk
-		buf := make([]byte, chunkSize)
-		offset := fileSize - readBytes - chunkSize
-
-		// Seek to the right position and read the chunk
-		_, err := file.Seek(offset, io.SeekStart)
-		if err != nil {
-			return nil, err
-		}
-
-		bytesRead, err := io.ReadFull(file, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, err
-		}
-
-		// Find line breaks in the chunk
-		var temp []string
-		start := bytesRead - 1
-
-		// Process the chunk from end to start
-		for i := bytesRead - 1; i >= 0; i-- {
-			if buf[i] == '\n' || i == 0 {
-				lineStart := i
-				if buf[i] == '\n' {
-					lineStart = i + 1
-				}
-
-				// Extract the line (if not at the start of chunk or if it's the first chunk)
-				if lineStart <= start && (offset > 0 || i > 0) {
-					line := string(buf[lineStart : start+1])
-					temp = append(temp, line)
-				}
-				start = i - 1
-			}
-		}
-
-		// If we're at the beginning of the file and there's text before the first newline
-		if offset == 0 && start >= 0 {
-			temp = append(temp, string(buf[0:start+1]))
-		}
-
-		// Reverse the temporary array (since we read backwards)
-		for i := len(temp) - 1; i >= 0; i-- {
-			lines = append([]string{temp[i]}, lines...)
-		}
-
-		// Update read bytes and maybe increase chunk size for next iteration
-		readBytes += int64(bytesRead)
-
-		// If we haven't found enough lines yet, increase chunk size
-		if len(lines) < n && chunkSize < fileSize/2 {
-			chunkSize *= 2
-		}
-
-		// Break if we've read the whole file
-		if offset == 0 {
-			break
-		}
-	}
-
-	// Ensure we don't return more lines than requested
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-
-	// Reset file position to the start
-	_, err := file.Seek(0, io.SeekStart)
+	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
 
+	bytesRead, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	// Extract lines from the buffer
+	content := string(buf[:bytesRead])
+	lines := splitLines(content)
+
+	// Return the last N lines
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+
 	return lines, nil
+}
+
+// Helper function to split content into lines
+func splitLines(content string) []string {
+	var lines []string
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines
 }
 
 // sendError sends an error message over WebSocket

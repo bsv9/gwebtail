@@ -26,13 +26,13 @@
             }
             .top-bar {
                 background-color: #f8f9fa;
-                border-bottom: 1px solid #dee2e6;
                 padding: 10px 15px;
+                border-bottom: none; /* Removed dividing line */
             }
             .log-container {
                 display: flex;
                 flex-direction: column;
-                height: calc(100vh - 130px);
+                height: calc(100vh - 85px);
                 padding: 0 15px;
             }
             .log-controls {
@@ -55,12 +55,6 @@
             .highlighted {
                 background-color: yellow;
                 color: black;
-            }
-            .status-bar {
-                background-color: #f8f9fa;
-                border-top: 1px solid #dee2e6;
-                padding: 8px 15px;
-                font-size: 0.9rem;
             }
             .refresh-icon {
                 font-size: 1.2rem;
@@ -105,23 +99,13 @@
                             </button>
                         </div>
                         <div class="input-group" style="max-width: 300px">
-                            <label class="input-group-text" for="search-input"
-                                >Highlight:</label
-                            >
+                            <label class="input-group-text" for="search-input">Highlight:</label>
                             <input
                                 type="text"
                                 id="search-input"
                                 class="form-control"
                                 placeholder="Text to highlight"
-                            />
-                            <button
-                                class="btn btn-outline-secondary"
-                                type="button"
-                                id="search-button"
-                                onclick="updateSearch()"
-                            >
-                                Apply
-                            </button>
+                                oninput="updateSearch()"/>
                         </div>
                     </div>
 
@@ -137,11 +121,11 @@
                                 type="number"
                                 class="form-control form-control-sm"
                                 id="max-lines"
-                                value="100"
+                                value="500"
                                 min="10"
                                 max="2000"
                                 style="width: 80px"
-                            />
+                                oninput="applySettings()"/>
                         </div>
 
                         <div class="control-group d-flex align-items-center">
@@ -161,36 +145,6 @@
                         </div>
 
                         <div class="control-group">
-                            <button
-                                class="btn btn-sm btn-primary"
-                                onclick="applySettings()"
-                            >
-                                Apply
-                            </button>
-                        </div>
-
-                        <div class="control-group">
-                            <div class="btn-group btn-group-sm">
-                                <button
-                                    class="btn btn-success"
-                                    id="start-button"
-                                    onclick="startTailing()"
-                                    disabled
-                                >
-                                    Start
-                                </button>
-                                <button
-                                    class="btn btn-danger"
-                                    id="stop-button"
-                                    onclick="stopTailing()"
-                                    disabled
-                                >
-                                    Stop
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="control-group">
                             <span class="badge bg-secondary" id="line-count"
                                 >0 lines</span
                             >
@@ -204,9 +158,7 @@
                 <div class="log-controls">
                     <div class="row">
                         <div class="col-12 text-end">
-                            <div id="file-stats" class="text-muted">
-                                No file selected
-                            </div>
+                            <div id="file-stats" class="text-muted"></div>
                         </div>
                     </div>
                 </div>
@@ -217,8 +169,6 @@
                     </div>
                 </div>
             </div>
-
-            <div class="status-bar" id="status-bar">Ready</div>
         </div>
 
         <script>
@@ -240,12 +190,10 @@
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = function () {
-                    setStatus("Connected");
                     refreshFiles();
                 };
 
                 ws.onclose = function () {
-                    setStatus("Disconnected");
                     if (autoReconnect) {
                         setTimeout(connectWebSocket, 3000);
                     }
@@ -253,7 +201,6 @@
 
                 ws.onerror = function (err) {
                     console.error("WebSocket error:", err);
-                    setStatus("Connection error");
                 };
 
                 ws.onmessage = function (event) {
@@ -273,10 +220,10 @@
                             }
                             break;
                         case "error":
-                            setStatus("Error: " + data.error);
+                            console.error("Error: " + data.error);
                             break;
                         case "stopped":
-                            setStatus("Stopped tailing");
+                            console.log("Stopped tailing");
                             break;
                     }
                 };
@@ -339,45 +286,29 @@
 
             // Select a file to tail
             function selectFile(file) {
-                // If already tailing, stop it first
-                if (isTailing) {
-                    stopTailing();
-                }
-
+                // Start WebSocket tailing automatically after file selection
                 currentFile = file;
-                // Reset the full log content
                 fullLogContent = [];
-
-                // Update the URL hash to include the selected file
                 window.location.hash = encodeURIComponent(file);
-
-                // Update dropdown selection
                 const fileSelect = document.getElementById("file-select");
                 if (fileSelect.value !== file) {
                     fileSelect.value = file;
                 }
-
-                // Update stats
-                document.getElementById("file-stats").innerHTML =
-                    `Selected: <strong>${file}</strong>`;
-
-                // Enable buttons
+                document.getElementById("file-stats").innerHTML = "";
                 updateTailButtons();
-
-                // Clear content
                 document.getElementById("log-content").innerHTML = `
-                <div class="alert alert-info">
-                    <strong>File selected:</strong> ${file}<br>
-                    Click "Start" to begin tailing the file.
-                </div>
-            `;
+                    <div class="alert alert-info">
+                        <strong>File selected:</strong> ${file}<br>
+                        Tailing started automatically.
+                    </div>
+                `;
                 document.getElementById("line-count").textContent = "0 lines";
+                startTailing(); // Automatically start tailing
             }
 
             // Start tailing a file
             function tailFile(file) {
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    setStatus("Not connected");
                     return;
                 }
 
@@ -392,7 +323,6 @@
                     }),
                 );
 
-                setStatus(`Tailing ${file}: showing last ${maxLines} lines`);
                 isTailing = true;
                 tailCancel = false;
                 updateTailButtons();
@@ -416,23 +346,13 @@
 
                     isTailing = false;
                     tailCancel = true;
-                    setStatus(`Stopped tailing ${currentFile}`);
                     updateTailButtons();
                 }
             }
 
             // Update the state of the start/stop buttons
             function updateTailButtons() {
-                const startButton = document.getElementById("start-button");
-                const stopButton = document.getElementById("stop-button");
-
-                if (currentFile) {
-                    startButton.disabled = isTailing;
-                    stopButton.disabled = !isTailing;
-                } else {
-                    startButton.disabled = true;
-                    stopButton.disabled = true;
-                }
+                // Removed logic for enabling/disabling Start/Stop buttons
             }
 
             // Display initial tail content
@@ -548,7 +468,6 @@
                 if (fullLogContent.length > 0) {
                     // Re-render with the new search term
                     renderLogContent();
-                    setStatus(`Highlighting text: "${searchText}"`);
                 } else if (!currentFile) {
                     alert("Please select a log file first.");
                 }
@@ -560,11 +479,6 @@
                     if (isTailing) {
                         // Restart tailing with new settings
                         tailFile(currentFile);
-                    } else {
-                        // Just update settings without starting
-                        setStatus(
-                            `Settings updated. Click "Start" to begin tailing with new settings.`,
-                        );
                     }
                 } else {
                     alert("Please select a log file first.");
@@ -584,14 +498,7 @@
                     const fileSelect = document.getElementById("file-select");
                     fileSelect.innerHTML =
                         '<option value="">Loading files...</option>';
-
-                    setStatus("Refreshing file list...");
                 }
-            }
-
-            // Set status message
-            function setStatus(message) {
-                document.getElementById("status-bar").textContent = message;
             }
 
             // Initialize
