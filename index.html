@@ -25,9 +25,29 @@
                 padding: 0;
             }
             .top-bar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
                 background-color: #f8f9fa;
                 padding: 10px 15px;
                 border-bottom: none; /* Removed dividing line */
+            }
+            .highlight-block {
+                position: absolute;
+                left: 50%;
+                transform: translateX(-50%); /* Center the highlight block */
+            }
+            /* Ensure other blocks remain in their positions */
+            .left-block {
+                flex: 1;
+                display: flex;
+                align-items: center;
+            }
+            .right-block {
+                flex: 1;
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
             }
             .log-container {
                 display: flex;
@@ -75,7 +95,7 @@
         <div class="container-fluid">
             <!-- Top Bar with all controls -->
             <div class="top-bar">
-                <div class="row align-items-center">
+                <div class="left-block">
                     <!-- Title, File Selector and Search -->
                     <div class="col-md-7 d-flex align-items-center">
                         <h3 class="me-3 mb-0">gWebTail</h3>
@@ -98,17 +118,19 @@
                                 <span class="refresh-icon">↻</span>
                             </button>
                         </div>
-                        <div class="input-group" style="max-width: 300px">
-                            <label class="input-group-text" for="search-input">Highlight:</label>
-                            <input
-                                type="text"
-                                id="search-input"
-                                class="form-control"
-                                placeholder="Text to highlight"
-                                oninput="updateSearch()"/>
-                        </div>
                     </div>
-
+                </div>
+                <div class="highlight-block">
+                    <div class="input-group" style="max-width: 500px">
+                        <input
+                            type="text"
+                            id="search-input"
+                            class="form-control"
+                            placeholder="Text to highlight"
+                            oninput="updateSearch()"/>
+                    </div>
+                </div>
+                <div class="right-block">
                     <!-- Settings -->
                     <div
                         class="col-md-5 d-flex align-items-center justify-content-end"
