@@ -8,7 +8,6 @@
 package main
 
 import (
-	"bufio"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -18,7 +17,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,10 +30,8 @@ var indexHTML []byte
 type Config struct {
 	LogDir          string
 	Port            int
-	MaxLines        int
-	MaxLineSize     int   // Maximum size of a single line
-	ChunkSize       int64 // Chunk size for reading large files
-	FileRefreshRate int   // Milliseconds between file checks
+	FileRefreshRate int // Milliseconds between file checks
+	BufferSize      int64
 }
 
 // FileInfo struct for listing files
@@ -82,10 +78,8 @@ func main() {
 	// Parse command line flags
 	flag.StringVar(&config.LogDir, "logdir", "", "Directory containing log files")
 	flag.IntVar(&config.Port, "port", 8080, "HTTP server port")
-	flag.IntVar(&config.MaxLines, "maxlines", 1000, "Maximum number of lines to display on screen")
-	flag.IntVar(&config.MaxLineSize, "maxlinesize", 8192, "Maximum size of a single line in bytes")
-	flag.Int64Var(&config.ChunkSize, "chunksize", 4*1024*1024, "Chunk size for reading large files (bytes)")
 	flag.IntVar(&config.FileRefreshRate, "refreshrate", 500, "File check interval in milliseconds")
+	flag.Int64Var(&config.BufferSize, "buffersize", 32*1024, "Buffer size for reading file updates (bytes)")
 	flag.Parse()
 
 	// Check if logdir is set from environment variable
@@ -258,14 +252,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			// log.Printf("WebSocket sent file list to %s (%d files)", connID, len(files))
 
 		case "tail":
-			// Ensure lines is within limits
-			if cmd.Lines <= 0 {
-				cmd.Lines = 100 // Default
-			}
-			if cmd.Lines > config.MaxLines {
-				cmd.Lines = config.MaxLines // Cap at maximum
-			}
-
 			// Cancel previous tail if any
 			if tailCancel != nil {
 				tailCancel <- true
@@ -276,11 +262,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			// Start new tail
 			tailCancel = make(chan bool)
 			wg.Add(1)
-			log.Printf("WebSocket starting tail for %s (file: %s, lines: %d)", connID, cmd.File, cmd.Lines)
-			go func(file string, lines int, searchStr string, cancel chan bool) {
+			log.Printf("WebSocket starting tail for %s (file: %s)", connID, cmd.File)
+			go func(file string, cancel chan bool) {
 				defer wg.Done()
-				tailFile(conn, file, lines, searchStr, cancel, connID)
-			}(cmd.File, cmd.Lines, cmd.SearchStr, tailCancel)
+				tailFile(conn, file, cancel, connID)
+			}(cmd.File, tailCancel)
 
 		case "stop":
 			// Stop current tail if any
@@ -338,14 +324,8 @@ func getFileList() ([]string, error) {
 	return fileNames, nil
 }
 
-// tailFile tails a file and sends updates over WebSocket
-func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string, cancel chan bool, connID string) {
-	if lines <= 0 {
-		lines = 500 // Default number of lines
-	}
-	if lines > config.MaxLines {
-		lines = config.MaxLines // Cap at maximum
-	}
+// Removed all line-based settings and calculations. Updated to use only the last 32K buffer for updates.
+func tailFile(conn *websocket.Conn, fileName string, cancel chan bool, connID string) {
 	filePath := filepath.Join(config.LogDir, fileName)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -368,8 +348,8 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	}
 	fileSize := fileInfo.Size()
 
-	// Send initial lines - memory optimized for large files
-	initialLines, err := readLastLinesOptimized(file, lines, fileSize)
+	// Send initial buffer content
+	initialBuffer, err := readLastBuffer(file, fileSize)
 	if err != nil {
 		sendError(conn, "Failed to read file: "+err.Error())
 		log.Printf("WebSocket error for %s: Failed to read file %s: %v", connID, fileName, err)
@@ -377,26 +357,21 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	}
 
 	response := TailResponse{
-		Type:      "tail",
-		File:      fileName,
-		Lines:     initialLines,
-		SearchStr: searchStr,
+		Type:  "tail",
+		File:  fileName,
+		Lines: []string{initialBuffer},
 	}
 	if err := conn.WriteJSON(response); err != nil {
-		log.Println("Error sending initial lines:", err)
+		log.Println("Error sending initial buffer:", err)
 		return
 	}
-	// log.Printf("WebSocket sent initial %d lines of %s to %s", len(initialLines), fileName, connID)
 
-	// Set current position to end of file for watching new lines
+	// Set current position to end of file for watching new updates
 	currentPos := fileSize
 
 	// Watch for file changes
 	ticker := time.NewTicker(time.Duration(config.FileRefreshRate) * time.Millisecond)
 	defer ticker.Stop()
-
-	// Buffer for reading new lines
-	reader := bufio.NewReaderSize(file, config.MaxLineSize)
 
 	for {
 		select {
@@ -412,68 +387,33 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 
 			if newSize > currentPos {
 				// File has grown, read new content
-				_, err := file.Seek(currentPos, io.SeekStart)
+				_, err := file.Seek(max(newSize-config.BufferSize, 0), io.SeekStart)
 				if err != nil {
 					sendError(conn, "Failed to seek in file: "+err.Error())
 					log.Printf("WebSocket error for %s: Failed to seek in file %s: %v", connID, fileName, err)
 					return
 				}
 
-				// Reset the reader to use the current file position
-				reader.Reset(file)
-
-				// Read new lines with size limit to avoid memory problems
-				var newLines []string
-				var totalBytes int64
-				const maxBatchBytes int64 = 1024 * 1024 // 1MB max per update to prevent memory spikes
-
-				for totalBytes < maxBatchBytes {
-					line, err := reader.ReadString('\n')
-					if err != nil {
-						if err == io.EOF {
-							// Add the last line if it's not empty
-							if len(line) > 0 {
-								newLines = append(newLines, line)
-								totalBytes += int64(len(line))
-							}
-							break
-						}
-						log.Printf("Error reading line: %v", err)
-						break
-					}
-
-					// Remove trailing newline
-					if len(line) > 0 && line[len(line)-1] == '\n' {
-						line = line[:len(line)-1]
-					}
-
-					newLines = append(newLines, line)
-					totalBytes += int64(len(line))
-
-					// Check if we have read everything
-					currentFilePos, _ := file.Seek(0, io.SeekCurrent)
-					if currentFilePos >= newSize {
-						break
-					}
+				buffer := make([]byte, config.BufferSize)
+				bytesRead, err := file.Read(buffer)
+				if err != nil && err != io.EOF {
+					sendError(conn, "Failed to read file: "+err.Error())
+					log.Printf("WebSocket error for %s: Failed to read file %s: %v", connID, fileName, err)
+					return
 				}
 
-				if len(newLines) > 0 {
-					// Update current position
-					currentPos, _ = file.Seek(0, io.SeekCurrent)
-
-					response := TailResponse{
-						Type:      "update",
-						File:      fileName,
-						Lines:     newLines,
-						SearchStr: searchStr,
-					}
-					if err := conn.WriteJSON(response); err != nil {
-						log.Println("Error sending updates:", err)
-						log.Printf("WebSocket error for %s: Failed to send updates for %s: %v", connID, fileName, err)
-						return
-					}
-					// log.Printf("WebSocket sent %d new lines of %s to %s", len(newLines), fileName, connID)
+				response := TailResponse{
+					Type:  "update",
+					File:  fileName,
+					Lines: []string{string(buffer[:bytesRead])},
 				}
+				if err := conn.WriteJSON(response); err != nil {
+					log.Println("Error sending updates:", err)
+					log.Printf("WebSocket error for %s: Failed to send updates for %s: %v", connID, fileName, err)
+					return
+				}
+
+				currentPos = newSize
 			} else if newSize < currentPos {
 				// File has been truncated, reset and read from beginning
 				currentPos = 0
@@ -484,10 +424,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 					return
 				}
 
-				// Reset reader
-				reader.Reset(file)
-
-				initialLines, err := readLastLinesOptimized(file, lines, newSize)
+				initialBuffer, err := readLastBuffer(file, newSize)
 				if err != nil {
 					sendError(conn, "Failed to read file after truncation: "+err.Error())
 					log.Printf("WebSocket error for %s: Failed to read %s after truncation: %v", connID, fileName, err)
@@ -495,17 +432,16 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 				}
 
 				response := TailResponse{
-					Type:      "tail",
-					File:      fileName,
-					Lines:     initialLines,
-					SearchStr: searchStr,
+					Type:  "tail",
+					File:  fileName,
+					Lines: []string{initialBuffer},
 				}
 				if err := conn.WriteJSON(response); err != nil {
 					log.Println("Error sending reset after truncation:", err)
 					log.Printf("WebSocket error for %s: Failed to send reset after truncation of %s: %v", connID, fileName, err)
 					return
 				}
-				log.Printf("WebSocket file %s was truncated, reset and sent %d lines to %s", fileName, len(initialLines), connID)
+				log.Printf("WebSocket file %s was truncated, reset and sent buffer to %s", fileName, connID)
 
 				currentPos = newSize
 			}
@@ -518,48 +454,25 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 	}
 }
 
-// Updated the tailing algorithm to read the last 32k bytes, find the last N lines, and push them to the socket
-func readLastLinesOptimized(file *os.File, n int, fileSize int64) ([]string, error) {
+// readLastBuffer reads the last 32K buffer from the file
+func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 	if fileSize == 0 {
-		return []string{}, nil
+		return "", nil
 	}
 
-	const bufferSize = 32 * 1024 // 32k buffer size
-	buf := make([]byte, bufferSize)
-
-	// Seek to the last 32k bytes or the start of the file if smaller
-	offset := max(fileSize-bufferSize, 0)
-
+	buffer := make([]byte, config.BufferSize)
+	offset := max(fileSize-config.BufferSize, 0)
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	bytesRead, err := file.Read(buf)
+	bytesRead, err := file.Read(buffer)
 	if err != nil && err != io.EOF {
-		return nil, err
+		return "", err
 	}
 
-	// Extract lines from the buffer
-	content := string(buf[:bytesRead])
-	lines := splitLines(content)
-
-	// Return the last N lines
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-
-	return lines, nil
-}
-
-// Helper function to split content into lines
-func splitLines(content string) []string {
-	var lines []string
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines
+	return string(buffer[:bytesRead]), nil
 }
 
 // sendError sends an error message over WebSocket
@@ -571,4 +484,12 @@ func sendError(conn *websocket.Conn, message string) {
 	if err := conn.WriteJSON(response); err != nil {
 		log.Printf("Error sending error message: %v", err)
 	}
+}
+
+// Helper function to get the maximum of two int64 values
+func max(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

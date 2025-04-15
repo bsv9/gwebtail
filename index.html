@@ -121,7 +121,8 @@
                     </div>
                 </div>
                 <div class="highlight-block">
-                    <div class="input-group" style="max-width: 500px">
+                    <!-- Updated the search field to use all available width -->
+                    <div class="input-group" style="width: 100%">
                         <input
                             type="text"
                             id="search-input"
@@ -132,45 +133,28 @@
                 </div>
                 <div class="right-block">
                     <!-- Settings -->
-                    <div
-                        class="col-md-5 d-flex align-items-center justify-content-end"
-                    >
+                    <div class="col-md-5 d-flex align-items-center justify-content-end">
                         <div class="control-group d-flex align-items-center">
-                            <label class="control-label" for="max-lines"
-                                >Lines:</label
-                            >
-                            <input
-                                type="number"
-                                class="form-control form-control-sm"
-                                id="max-lines"
-                                value="500"
-                                min="10"
-                                max="2000"
-                                style="width: 80px"
-                                oninput="applySettings()"/>
+                            <!-- Removed max-lines input -->
                         </div>
 
                         <div class="control-group d-flex align-items-center">
                             <div class="form-check form-switch mb-0">
-                                <input
-                                    class="form-check-input"
-                                    type="checkbox"
-                                    id="auto-scroll"
-                                    checked
-                                />
-                                <label
-                                    class="form-check-label"
-                                    for="auto-scroll"
-                                    >Auto-scroll</label
-                                >
+                                <input class="form-check-input" type="checkbox" id="auto-scroll" checked/>
+                                <label class="form-check-label"for="auto-scroll">Auto-scroll</label>
                             </div>
                         </div>
 
+                        <!-- Added a button to copy displayed content to the clipboard -->
                         <div class="control-group">
-                            <span class="badge bg-secondary" id="line-count"
-                                >0 lines</span
-                            >
+                            <!-- Replaced text on the Copy to Clipboard button with an icon -->
+                            <button class="btn" onclick="copyDisplayedContent()" title="Copy to Clipboard">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
+                                    <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
+                                </svg>
+                            </button>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -324,7 +308,6 @@
                         Tailing started automatically.
                     </div>
                 `;
-                document.getElementById("line-count").textContent = "0 lines";
                 startTailing(); // Automatically start tailing
             }
 
@@ -334,13 +317,10 @@
                     return;
                 }
 
-                const maxLines = document.getElementById("max-lines").value;
-
                 ws.send(
                     JSON.stringify({
                         command: "tail",
                         file: file,
-                        lines: parseInt(maxLines), // This controls how many lines to display on screen
                         searchStr: "", // No server-side search
                     }),
                 );
@@ -383,8 +363,6 @@
                     const logContent = document.getElementById("log-content");
                     logContent.innerHTML =
                         '<div class="alert alert-info">File is empty</div>';
-                    document.getElementById("line-count").textContent =
-                        "0 lines";
                     return;
                 }
 
@@ -407,16 +385,6 @@
                 // Add new lines to our stored log content
                 fullLogContent = fullLogContent.concat(lines);
 
-                // Apply max lines limit
-                const maxLines = parseInt(
-                    document.getElementById("max-lines").value,
-                );
-                if (fullLogContent.length > maxLines) {
-                    fullLogContent = fullLogContent.slice(
-                        fullLogContent.length - maxLines,
-                    );
-                }
-
                 // Re-render the log content with the updated data
                 renderLogContent();
             }
@@ -424,23 +392,12 @@
             // Render the log content with current search settings
             function renderLogContent() {
                 const logContent = document.getElementById("log-content");
-                const maxLines = parseInt(
-                    document.getElementById("max-lines").value,
-                );
 
                 // Get search text from the input field
                 searchText = document.getElementById("search-input").value;
 
-                // Limit lines to maxLines if needed
-                let linesToDisplay = fullLogContent;
-                if (linesToDisplay.length > maxLines) {
-                    linesToDisplay = linesToDisplay.slice(
-                        linesToDisplay.length - maxLines,
-                    );
-                }
-
                 let html = "";
-                linesToDisplay.forEach((line) => {
+                fullLogContent.forEach((line) => {
                     if (searchText && line.includes(searchText)) {
                         html +=
                             '<div class="log-line">' +
@@ -455,8 +412,6 @@
                 });
 
                 logContent.innerHTML = html;
-                document.getElementById("line-count").textContent =
-                    linesToDisplay.length + " lines";
 
                 if (document.getElementById("auto-scroll").checked) {
                     logContent.scrollTop = logContent.scrollHeight;
@@ -521,6 +476,20 @@
                     fileSelect.innerHTML =
                         '<option value="">Loading files...</option>';
                 }
+            }
+
+            // Added JavaScript function to copy displayed content
+            function copyDisplayedContent() {
+                const logContent = document.getElementById("log-content").innerText;
+                navigator.clipboard.writeText(logContent).then(
+                    () => {
+                        alert("Content copied to clipboard!");
+                    },
+                    (err) => {
+                        console.error("Failed to copy content: ", err);
+                        alert("Failed to copy content.");
+                    },
+                );
             }
 
             // Initialize
