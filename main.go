@@ -255,7 +255,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			if err := conn.WriteJSON(response); err != nil {
 				log.Println("Error sending file list:", err)
 			}
-			log.Printf("WebSocket sent file list to %s (%d files)", connID, len(files))
+			// log.Printf("WebSocket sent file list to %s (%d files)", connID, len(files))
 
 		case "tail":
 			// Ensure lines is within limits
@@ -341,7 +341,7 @@ func getFileList() ([]string, error) {
 // tailFile tails a file and sends updates over WebSocket
 func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string, cancel chan bool, connID string) {
 	if lines <= 0 {
-		lines = 100 // Default number of lines
+		lines = 500 // Default number of lines
 	}
 	if lines > config.MaxLines {
 		lines = config.MaxLines // Cap at maximum
@@ -386,7 +386,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 		log.Println("Error sending initial lines:", err)
 		return
 	}
-	log.Printf("WebSocket sent initial %d lines of %s to %s", len(initialLines), fileName, connID)
+	// log.Printf("WebSocket sent initial %d lines of %s to %s", len(initialLines), fileName, connID)
 
 	// Set current position to end of file for watching new lines
 	currentPos := fileSize
@@ -472,7 +472,7 @@ func tailFile(conn *websocket.Conn, fileName string, lines int, searchStr string
 						log.Printf("WebSocket error for %s: Failed to send updates for %s: %v", connID, fileName, err)
 						return
 					}
-					log.Printf("WebSocket sent %d new lines of %s to %s", len(newLines), fileName, connID)
+					// log.Printf("WebSocket sent %d new lines of %s to %s", len(newLines), fileName, connID)
 				}
 			} else if newSize < currentPos {
 				// File has been truncated, reset and read from beginning
@@ -528,10 +528,7 @@ func readLastLinesOptimized(file *os.File, n int, fileSize int64) ([]string, err
 	buf := make([]byte, bufferSize)
 
 	// Seek to the last 32k bytes or the start of the file if smaller
-	offset := fileSize - bufferSize
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(fileSize-bufferSize, 0)
 
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
