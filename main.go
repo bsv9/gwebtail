@@ -26,6 +26,9 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed assets/css/bootstrap.min.css
+var bootstrapCSS []byte
+
 // Configuration struct
 type Config struct {
 	LogDir          string
@@ -102,6 +105,12 @@ func main() {
 	loggedMux.HandleFunc("/", serveHome)
 	loggedMux.HandleFunc("/api/files", listFiles)
 	loggedMux.HandleFunc("/ws", handleWebSocket)
+
+	// Add route to serve embedded bootstrap.min.css
+	loggedMux.HandleFunc("/assets/css/bootstrap.min.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css")
+		w.Write(bootstrapCSS)
+	})
 
 	// Create middleware to log HTTP requests
 	loggedHandler := logRequestMiddleware(loggedMux)
