@@ -23,7 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//go:embed index.html
+//go:embed assets/html/index.html
 var indexHTML []byte
 
 //go:embed assets/css/bootstrap.min.css
@@ -469,8 +469,13 @@ func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 		return "", nil
 	}
 
-	buffer := make([]byte, config.BufferSize)
-	offset := max(fileSize-config.BufferSize, 0)
+	bufferSize := config.BufferSize
+	if bufferSize > fileSize {
+		bufferSize = fileSize
+	}
+
+	buffer := make([]byte, bufferSize)
+	offset := fileSize - bufferSize
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return "", err
