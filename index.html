@@ -4,7 +4,7 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>gWebTail - Log Viewer</title>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.9/htmx.min.js"></script>
+        <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.9/htmx.min.js"></script> -->
         <link
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css"
@@ -24,30 +24,10 @@
                 flex-direction: column;
                 padding: 0;
             }
-            .top-bar {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                background-color: #f8f9fa;
-                padding: 10px 15px;
-                border-bottom: none; /* Removed dividing line */
-            }
             .highlight-block {
                 position: absolute;
                 left: 50%;
                 transform: translateX(-50%); /* Center the highlight block */
-            }
-            /* Ensure other blocks remain in their positions */
-            .left-block {
-                flex: 1;
-                display: flex;
-                align-items: center;
-            }
-            .right-block {
-                flex: 1;
-                display: flex;
-                justify-content: flex-end;
-                align-items: center;
             }
             .log-container {
                 display: flex;
@@ -76,86 +56,51 @@
                 background-color: yellow;
                 color: black;
             }
-            .refresh-icon {
-                font-size: 1.2rem;
-            }
-            .control-group {
-                margin-right: 20px;
-            }
-            .control-label {
-                font-weight: 500;
-                margin-right: 8px;
-            }
-            .btn-group-sm .btn {
-                padding: 0.25rem 0.5rem;
-            }
         </style>
     </head>
     <body>
-        <div class="container-fluid">
+        <div class="container-fluid d-flex flex-column p-0">
             <!-- Top Bar with all controls -->
-            <div class="top-bar">
-                <div class="left-block">
-                    <!-- Title, File Selector and Search -->
-                    <div class="col-md-7 d-flex align-items-center">
-                        <h3 class="me-3 mb-0">gWebTail</h3>
-                        <div class="input-group me-3" style="max-width: 300px">
-                            <label class="input-group-text" for="file-select"
-                                >File:</label
-                            >
-                            <select
-                                class="form-select"
-                                id="file-select"
-                                onchange="selectFileFromDropdown()"
-                            >
-                                <option value="">-- Select log file --</option>
-                            </select>
-                            <button
-                                class="btn btn-outline-secondary"
-                                type="button"
-                                onclick="refreshFiles()"
-                            >
-                                <span class="refresh-icon">↻</span>
-                            </button>
-                        </div>
+            <div class="d-flex justify-content-between align-items-center bg-light p-2 border-bottom">
+                <div class="d-flex align-items-center">
+                    <h3 class="me-3 mb-0">gWebTail</h3>
+                    <div class="input-group me-3" style="max-width: 300px">
+                        <label class="input-group-text" for="file-select">File:</label>
+                        <select
+                            class="form-select"
+                            id="file-select"
+                            onchange="selectFileFromDropdown()"
+                        >
+                            <option value="">-- Select log file --</option>
+                        </select>
+                        <button
+                            class="btn btn-outline-secondary"
+                            type="button"
+                            onclick="refreshFiles()"
+                        >
+                            <span class="">↻</span>
+                        </button>
                     </div>
                 </div>
-                <div class="highlight-block">
-                    <!-- Updated the search field to use all available width -->
-                    <div class="input-group" style="width: 100%">
-                        <input
-                            type="text"
-                            id="search-input"
-                            class="form-control"
-                            placeholder="Text to highlight"
-                            oninput="updateSearch()"/>
-                    </div>
+                <div class="w-50">
+                    <input
+                        type="text"
+                        id="search-input"
+                        class="form-control"
+                        placeholder="Text to highlight"
+                        oninput="updateSearch()"
+                    />
                 </div>
-                <div class="right-block">
-                    <!-- Settings -->
-                    <div class="col-md-5 d-flex align-items-center justify-content-end">
-                        <div class="control-group d-flex align-items-center">
-                            <!-- Removed max-lines input -->
-                        </div>
-
-                        <div class="control-group d-flex align-items-center">
-                            <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="auto-scroll" checked/>
-                                <label class="form-check-label"for="auto-scroll">Auto-scroll</label>
-                            </div>
-                        </div>
-
-                        <!-- Added a button to copy displayed content to the clipboard -->
-                        <div class="control-group">
-                            <!-- Replaced text on the Copy to Clipboard button with an icon -->
-                            <button class="btn" onclick="copyDisplayedContent()" title="Copy to Clipboard">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
-                                    <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
-                                </svg>
-                            </button>
-                        </div>
-
+                <div class="d-flex align-items-center">
+                    <div class="form-check form-switch mb-0 me-3">
+                        <input class="form-check-input" type="checkbox" id="auto-scroll" checked />
+                        <label class="form-check-label" for="auto-scroll">Auto-scroll</label>
                     </div>
+                    <button class="btn btn-outline-secondary" onclick="copyDisplayedContent()" title="Copy to Clipboard">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -301,13 +246,14 @@
                     fileSelect.value = file;
                 }
                 document.getElementById("file-stats").innerHTML = "";
-                updateTailButtons();
                 document.getElementById("log-content").innerHTML = `
                     <div class="alert alert-info">
                         <strong>File selected:</strong> ${file}<br>
                         Tailing started automatically.
                     </div>
                 `;
+                // Update the page title when a file is selected
+                document.title = `Viewing: ${file} - gWebTail`;
                 startTailing(); // Automatically start tailing
             }
 
@@ -327,7 +273,6 @@
 
                 isTailing = true;
                 tailCancel = false;
-                updateTailButtons();
             }
 
             // Start tailing the currently selected file
@@ -348,13 +293,7 @@
 
                     isTailing = false;
                     tailCancel = true;
-                    updateTailButtons();
                 }
-            }
-
-            // Update the state of the start/stop buttons
-            function updateTailButtons() {
-                // Removed logic for enabling/disabling Start/Stop buttons
             }
 
             // Display initial tail content
