@@ -82,7 +82,7 @@ func main() {
 	flag.StringVar(&config.LogDir, "logdir", "", "Directory containing log files")
 	flag.IntVar(&config.Port, "port", 8080, "HTTP server port")
 	flag.IntVar(&config.FileRefreshRate, "refreshrate", 500, "File check interval in milliseconds")
-	flag.Int64Var(&config.BufferSize, "buffersize", 32*1024, "Buffer size for reading file updates (bytes)")
+	flag.Int64Var(&config.BufferSize, "buffersize", 4*1024, "Buffer size for reading file updates (bytes)")
 	flag.Parse()
 
 	// Check if logdir is set from environment variable
@@ -333,7 +333,6 @@ func getFileList() ([]string, error) {
 	return fileNames, nil
 }
 
-// Removed all line-based settings and calculations. Updated to use only the last 32K buffer for updates.
 func tailFile(conn *websocket.Conn, fileName string, cancel chan bool, connID string) {
 	filePath := filepath.Join(config.LogDir, fileName)
 	file, err := os.Open(filePath)
@@ -395,15 +394,17 @@ func tailFile(conn *websocket.Conn, fileName string, cancel chan bool, connID st
 			newSize := fileInfo.Size()
 
 			if newSize > currentPos {
-				// File has grown, read new content
-				_, err := file.Seek(max(newSize-config.BufferSize, 0), io.SeekStart)
+				// File has grown, read only the new content
+				_, err := file.Seek(currentPos, io.SeekStart)
 				if err != nil {
 					sendError(conn, "Failed to seek in file: "+err.Error())
 					log.Printf("WebSocket error for %s: Failed to seek in file %s: %v", connID, fileName, err)
 					return
 				}
 
-				buffer := make([]byte, config.BufferSize)
+				// Read only the new bytes, but limit to config.BufferSize
+				bytesToRead := min(newSize-currentPos, config.BufferSize)
+				buffer := make([]byte, bytesToRead)
 				bytesRead, err := file.Read(buffer)
 				if err != nil && err != io.EOF {
 					sendError(conn, "Failed to read file: "+err.Error())
@@ -463,7 +464,7 @@ func tailFile(conn *websocket.Conn, fileName string, cancel chan bool, connID st
 	}
 }
 
-// readLastBuffer reads the last 32K buffer from the file
+// readLastBuffer reads the last buffer from the file
 func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 	if fileSize == 0 {
 		return "", nil
@@ -475,15 +476,15 @@ func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 	}
 
 	buffer := make([]byte, bufferSize)
-	offset := fileSize - bufferSize
+	offset := max(0, fileSize-bufferSize)
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
 	bytesRead, err := file.Read(buffer)
 	if err != nil && err != io.EOF {
-		return "", err
+		return "", fmt.Errorf("failed to read buffer: %w", err)
 	}
 
 	return string(buffer[:bytesRead]), nil
@@ -503,6 +504,14 @@ func sendError(conn *websocket.Conn, message string) {
 // Helper function to get the maximum of two int64 values
 func max(a, b int64) int64 {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+// Helper function to get the minimum of two int64 values
+func min(a, b int64) int64 {
+	if a < b {
 		return a
 	}
 	return b

@@ -113,6 +113,7 @@
             let isTailing = false;
             let tailCancel = false;
             let fullLogContent = []; // Store the complete log content
+            const MAX_BUFFER_SIZE = 32 * 1024; // 32KB max buffer size
 
             // Connect to WebSocket
             function connectWebSocket() {
@@ -278,6 +279,19 @@
                 }
             }
 
+            // Trim the buffer to keep it under 32KB
+            function trimBufferIfNeeded() {
+                let totalSize = 0;
+                for (let i = fullLogContent.length - 1; i >= 0; i--) {
+                    totalSize += fullLogContent[i].length;
+                    if (totalSize > MAX_BUFFER_SIZE) {
+                        // Keep only content that fits in the buffer (from the end)
+                        fullLogContent = fullLogContent.slice(i + 1);
+                        break;
+                    }
+                }
+            }
+
             // Display initial tail content
             function displayTail(file, lines) {
                 if (!lines || lines.length === 0) {
@@ -287,8 +301,9 @@
                     return;
                 }
 
-                // Store the full log content
+                // Store the content with buffer limit
                 fullLogContent = lines;
+                trimBufferIfNeeded();
 
                 // Get search text from the input field
                 searchText = document.getElementById("search-input").value;
@@ -305,6 +320,7 @@
 
                 // Add new lines to our stored log content
                 fullLogContent = fullLogContent.concat(lines);
+                trimBufferIfNeeded();
 
                 // Re-render the log content with the updated data
                 renderLogContent();

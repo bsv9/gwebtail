@@ -9,6 +9,7 @@ A simple, lightweight web-based log file viewer with real-time log tailing via W
 
 - **Web-based log viewer** - Access your logs from any browser
 - **Real-time updates** - See new log entries immediately as they're written
+- **No external dependencies** - Can work in on-prem environment
 - **Syntax highlighting** - Highlight specific text patterns for easier reading
 - **Adjustable display** - Configure how many lines to show
 - **Full-width viewing** - Maximize screen space for log content
@@ -67,10 +68,8 @@ WebTail can be configured through environment variables or command-line flags:
 |----------------------|-----------------|--------------------------------------------|--------------:|
 | `LOG_DIR`            | `-logdir`       | Directory containing log files             | `/logs`       |
 | (none)               | `-port`         | HTTP server port                           | `8080`        |
-| (none)               | `-maxlines`     | Maximum number of lines to display         | `1000`        |
-| (none)               | `-maxlinesize`  | Maximum size of a single line in bytes     | `8192`        |
-| (none)               | `-chunksize`    | Chunk size for reading large files (bytes) | `4194304`     |
 | (none)               | `-refreshrate`  | File check interval in milliseconds        | `500`         |
+| (none)               | `-buffersize`   | Buffer size for reading file updates (bytes) | `4096`        |
 
 ## Usage
 
