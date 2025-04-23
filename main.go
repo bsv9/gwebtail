@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,24 @@ type TailResponse struct {
 	SearchStr string   `json:"searchStr,omitempty"`
 }
 
+// WebSocketConnection defines an interface for websocket connections
+// This allows us to mock the connection in tests
+type WebSocketConnection interface {
+	WriteJSON(v interface{}) error
+	Close() error
+	RemoteAddr() interface{} // Works with both net.Addr and string
+}
+
+// WebSocketWrapper wraps a *websocket.Conn to implement our WebSocketConnection interface
+type WebSocketWrapper struct {
+	*websocket.Conn
+}
+
+// RemoteAddr implements the WebSocketConnection interface
+func (w *WebSocketWrapper) RemoteAddr() interface{} {
+	return w.Conn.RemoteAddr()
+}
+
 var (
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -82,7 +101,7 @@ func main() {
 	flag.StringVar(&config.LogDir, "logdir", "", "Directory containing log files")
 	flag.IntVar(&config.Port, "port", 8080, "HTTP server port")
 	flag.IntVar(&config.FileRefreshRate, "refreshrate", 500, "File check interval in milliseconds")
-	flag.Int64Var(&config.BufferSize, "buffersize", 4*1024, "Buffer size for reading file updates (bytes)")
+	flag.Int64Var(&config.BufferSize, "buffersize", 32*1024, "Buffer size for reading file updates (bytes)")
 	flag.Parse()
 
 	// Check if logdir is set from environment variable
@@ -186,8 +205,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error upgrading to WebSocket:", err)
 		return
 	}
+
+	// Wrap the connection to implement our interface
+	wsConn := &WebSocketWrapper{conn}
+
 	defer func() {
-		if err := conn.Close(); err != nil {
+		if err := wsConn.Close(); err != nil {
 			log.Printf("Error closing WebSocket connection: %v", err)
 		}
 	}()
@@ -215,7 +238,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Type:  "files",
 		Lines: files,
 	}
-	if err := conn.WriteJSON(response); err != nil {
+	if err := wsConn.WriteJSON(response); err != nil {
 		log.Println("Error sending file list:", err)
 		return
 	}
@@ -226,7 +249,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		var cmd TailCommand
-		if err := conn.ReadJSON(&cmd); err != nil {
+		if err := wsConn.ReadJSON(&cmd); err != nil {
 			log.Println("Error reading JSON:", err)
 			break
 		}
@@ -248,17 +271,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case "list":
 			files, err := getFileList()
 			if err != nil {
-				sendError(conn, "Failed to list files: "+err.Error())
+				sendError(wsConn, "Failed to list files: "+err.Error())
 				continue
 			}
 			response := TailResponse{
 				Type:  "files",
 				Lines: files,
 			}
-			if err := conn.WriteJSON(response); err != nil {
+			if err := wsConn.WriteJSON(response); err != nil {
 				log.Println("Error sending file list:", err)
 			}
-			// log.Printf("WebSocket sent file list to %s (%d files)", connID, len(files))
 
 		case "tail":
 			// Cancel previous tail if any
@@ -274,7 +296,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Printf("WebSocket starting tail for %s (file: %s)", connID, cmd.File)
 			go func(file string, cancel chan bool) {
 				defer wg.Done()
-				tailFile(conn, file, cancel, connID)
+				tailFile(wsConn, file, cancel, connID)
 			}(cmd.File, tailCancel)
 
 		case "stop":
@@ -289,7 +311,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				response := TailResponse{
 					Type: "stopped",
 				}
-				if err := conn.WriteJSON(response); err != nil {
+				if err := wsConn.WriteJSON(response); err != nil {
 					log.Println("Error sending stop acknowledgment:", err)
 				}
 			}
@@ -302,7 +324,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 					Type:      "search",
 					SearchStr: cmd.SearchStr,
 				}
-				if err := conn.WriteJSON(response); err != nil {
+				if err := wsConn.WriteJSON(response); err != nil {
 					log.Println("Error sending search update:", err)
 				}
 				log.Printf("WebSocket search updated for %s (search: %s)", connID, cmd.SearchStr)
@@ -333,7 +355,7 @@ func getFileList() ([]string, error) {
 	return fileNames, nil
 }
 
-func tailFile(conn *websocket.Conn, fileName string, cancel chan bool, connID string) {
+func tailFile(conn WebSocketConnection, fileName string, cancel chan bool, connID string) {
 	filePath := filepath.Join(config.LogDir, fileName)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -476,7 +498,11 @@ func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 	}
 
 	buffer := make([]byte, bufferSize)
+
+	// Calculate the correct offset to include complete lines
+	// In this case, we need to ensure we start at a position where we get full lines
 	offset := max(0, fileSize-bufferSize)
+
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return "", fmt.Errorf("failed to seek to offset %d: %w", offset, err)
@@ -487,11 +513,22 @@ func readLastBuffer(file *os.File, fileSize int64) (string, error) {
 		return "", fmt.Errorf("failed to read buffer: %w", err)
 	}
 
-	return string(buffer[:bytesRead]), nil
+	content := string(buffer[:bytesRead])
+
+	// If we're not starting from the beginning of the file, we might have a partial line
+	// Find the position of the first newline and skip the partial line if needed
+	if offset > 0 {
+		if idx := strings.Index(content, "\n"); idx >= 0 {
+			// Skip the first partial line if we didn't start at the beginning of the file
+			content = content[idx+1:]
+		}
+	}
+
+	return content, nil
 }
 
 // sendError sends an error message over WebSocket
-func sendError(conn *websocket.Conn, message string) {
+func sendError(conn WebSocketConnection, message string) {
 	response := TailResponse{
 		Type:  "error",
 		Error: message,
