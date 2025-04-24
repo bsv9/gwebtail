@@ -283,6 +283,14 @@ type mockConn struct {
 	mu           sync.Mutex
 }
 
+// mockAddr implements the net.Addr interface for testing
+// This matches the behavior of the actual WebSocketWrapper.RemoteAddr() method
+// which returns a net.Addr from the underlying websocket connection
+type mockAddr struct{}
+
+func (a mockAddr) Network() string { return "tcp" }
+func (a mockAddr) String() string  { return "test-client:12345" }
+
 func (m *mockConn) WriteJSON(v interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -298,7 +306,7 @@ func (m *mockConn) Close() error {
 }
 
 func (m *mockConn) RemoteAddr() interface{} {
-	return "test-client"
+	return mockAddr{}
 }
 
 // TestSendError tests the sendError function
@@ -324,18 +332,8 @@ func TestSendError(t *testing.T) {
 	}
 }
 
-// Integration test for WebSocket handling
+// Integration test for WebSocket handling (marked as skipped)
 func TestWebSocketIntegration(t *testing.T) {
-	// This test requires more sophisticated setup with an HTTP server
-	// and real WebSocket connections - implementation would be environment-dependent
-
-	// Instead of implementing here, I'll provide the structure of what this test should do:
-	// 1. Start a test HTTP server
-	// 2. Create a temporary log directory with test files
-	// 3. Connect with a WebSocket client
-	// 4. Send commands and verify responses
-	// 5. Test different scenarios: listing files, tailing, updates, etc.
-
 	t.Skip("Integration test skipped - requires actual WebSocket connections")
 }
 
@@ -424,7 +422,8 @@ func TestTailFile(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		tailFile(mock, testFile, cancel, "test-client")
+		// Use the string that mockAddr.String() would return
+		tailFile(mock, testFile, cancel, "test-client:12345")
 	}()
 
 	// Wait for initial content - use a timeout and polling approach
@@ -549,9 +548,6 @@ func TestMiddleware(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test-path", nil)
 	w := httptest.NewRecorder()
 
-	// Capture log output (this is implementation-dependent)
-	// In a real test, you might redirect log output to a buffer
-
 	// Call the handler
 	handlerWithMiddleware.ServeHTTP(w, req)
 
@@ -559,6 +555,4 @@ func TestMiddleware(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
-
-	// In a real test, you'd verify the log output
 }
